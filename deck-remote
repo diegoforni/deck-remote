@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# deck-remote launcher — always use this to run the server.
+# Works even when Node was installed by install.sh via nvm and this shell
+# is non-interactive (nvm only loads in interactive shells).
+set -euo pipefail
+cd "$(dirname "$0")"
+if [ -f .node-bin-dir ]; then
+  export PATH="$(cat .node-bin-dir):$PATH"
+fi
+if ! command -v node >/dev/null 2>&1; then
+  echo "node not found — run: bash install.sh" >&2
+  exit 1
+fi
+exec node server.js "$@"

@@ -243,7 +243,7 @@
 git clone https://github.com/diegoforni/deck-remote.git
 bash deck-remote/install.sh        <span class="c"># one line: Node (if needed) + deps + OCR model</span>
 cd deck-remote
-node server.js --url ~/talks/my-deck.pdf     <span class="c"># or --url docs.google.com</span></pre>
+./deck-remote --url ~/talks/my-deck.pdf     <span class="c"># or --url docs.google.com</span></pre>
     <ol class="steps">
       <li><b>Scan the QR code</b> that appears in the terminal with your phone (same Wi‑Fi).</li>
       <li>Let deck-remote do <b>one automatic pass</b> through the deck — it screenshots and OCRs every slide to build the descriptions, then returns to slide 1.</li>
@@ -275,7 +275,7 @@ node server.js --url ~/talks/my-deck.pdf     <span class="c"># or --url docs.goo
     <details><summary>Does it work with Google Slides?</summary>
       <p>Yes — open the deck in presentation mode (Ctrl/⌘+F5). For private decks, sign into Google once in the window deck-remote launches. Arrow-key-driven HTML decks work too.</p></details>
     <details><summary>And PDFs?</summary>
-      <p>Yes — pass the file path: <code>node server.js --url ~/deck.pdf</code>. Navigation uses the PDF viewer's page anchors; any zoom level works.</p></details>
+      <p>Yes — pass the file path: <code>./deck-remote --url ~/deck.pdf</code>. Navigation uses the PDF viewer's page anchors; any zoom level works.</p></details>
     <details><summary>Is it safe on conference Wi‑Fi?</summary>
       <p>The remote is LAN-only and unauthenticated by default; run it with <code>--pin 1234</code> on shared networks. Nothing is sent to the internet — the OCR runs locally.</p></details>
     <details><summary>What does the installer do?</summary>

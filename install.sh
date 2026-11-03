@@ -32,6 +32,9 @@ else
   . "$NVM_DIR/nvm.sh" || die "could not load nvm"
   nvm install --lts || die "nvm could not install Node.js"
   node_ok || die "Node >= 18 still unavailable — install it from https://nodejs.org and re-run"
+  # remember nvm's bin dir so the ./deck-remote launcher works in
+  # non-interactive shells (nvm only loads in interactive ones)
+  dirname "$(command -v node)" > .node-bin-dir
   say "Node.js $(node -v) installed via nvm"
 fi
 
@@ -51,9 +54,9 @@ node scripts/warm-ocr.js || die "OCR model setup failed (internet needed once)"
 say "Install complete."
 echo
 echo "Run it:"
-echo "  node server.js --url ~/path/to/deck.pdf     # PDF deck"
-echo "  node server.js --url docs.google.com        # Google Slides (present mode)"
-echo "  node server.js --list-tabs                  # list tabs deck-remote can see"
-echo "  npm test                                    # end-to-end self test"
+echo "  ./deck-remote --url ~/path/to/deck.pdf     # PDF deck"
+echo "  ./deck-remote --url docs.google.com        # Google Slides (present mode)"
+echo "  ./deck-remote --list-tabs                  # list tabs deck-remote can see"
+echo "  bash scripts/test.sh                       # end-to-end self test"
 echo
 echo "A QR code prints at startup — scan it with your phone (same Wi-Fi)."

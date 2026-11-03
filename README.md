@@ -56,8 +56,8 @@ scp -r deck-remote/ diegoforni@desktop:            # or scp the tarball below
 ## Quick start
 
 ```bash
-node server.js --url ~/talks/my-deck.pdf           # PDF: a path opens it automatically
-node server.js --url docs.google.com              # or pick a tab by URL substring
+./deck-remote --url ~/talks/my-deck.pdf           # PDF: a path opens it automatically
+./deck-remote --url docs.google.com              # or pick a tab by URL substring
 ```
 
 Then:
