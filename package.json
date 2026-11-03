@@ -1,0 +1,18 @@
+{
+  "name": "deck-remote",
+  "version": "1.0.0",
+  "description": "Phone remote control for Google Slides / PDF decks open in Chrome, with live slide descriptions and a talk timer",
+  "main": "server.js",
+  "bin": { "deck-remote": "server.js" },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/e2e.js"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
+    "sharp": "^0.33.5",
+    "tesseract.js": "^5.1.1",
+    "ws": "^8.18.0"
+  }
+}

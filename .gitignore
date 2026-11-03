@@ -1,0 +1,7 @@
+node_modules/
+.tess-cache/
+test/deck.pdf
+test/phone-ui.png
+test/phone-static.png
+docs-check.png
+deck-remote-bundle.tar.gz

@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Test Deck</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; font-family: system-ui, sans-serif; color: #fff; }
+  .slide {
+    position: absolute; inset: 0; display: none;
+    flex-direction: column; justify-content: center; align-items: center; gap: 28px;
+  }
+  .slide.active { display: flex; }
+  h1 { font-size: 64px; margin: 0; }
+  ul { font-size: 34px; line-height: 1.6; }
+</style>
+</head>
+<body>
+  <div class="slide" style="background:#1a2340"><h1>Welcome &amp; Agenda</h1><ul><li>Who we are</li><li>Plan for today</li></ul></div>
+  <div class="slide" style="background:#20323a"><h1>Market Overview</h1><ul><li>Segment growth</li><li>Competitors</li></ul></div>
+  <div class="slide" style="background:#3a2030"><h1>Revenue Growth</h1><ul><li>Q3 numbers</li><li>Forecasts</li></ul></div>
+  <div class="slide" style="background:#2d3a20"><h1>Product Roadmap</h1><ul><li>Shipping next</li><li>Later this year</li></ul></div>
+  <div class="slide" style="background:#3a2d20"><h1>Team Expansion</h1><ul><li>New hires</li><li>Open roles</li></ul></div>
+  <div class="slide" style="background:#20203a"><h1>Closing &amp; Questions</h1><ul><li>Thank you</li><li>Contact us</li></ul></div>
+<script>
+  const slides = document.querySelectorAll('.slide');
+  let i = 0;
+  function show(n) { i = Math.max(0, Math.min(slides.length - 1, n)); slides.forEach((s, k) => s.classList.toggle('active', k === i)); }
+  show(0);
+  addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') show(i + 1);
+    else if (e.key === 'ArrowLeft' || e.key === 'PageUp') show(i - 1);
+    else if (e.key === 'Home') show(0);
+    else if (e.key === 'End') show(slides.length - 1);
+  });
+</script>
+</body>
+</html>

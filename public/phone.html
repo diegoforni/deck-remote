@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b0e14">
+<title>Deck Remote</title>
+<style>
+  :root {
+    --bg: #0b0e14;
+    --card: #161c26;
+    --card2: #10151d;
+    --text: #f2f5f9;
+    --dim: #8b95a5;
+    --accent: #34d399;
+    --accent-press: #10b981;
+    --back: #2b3648;
+    --back-press: #1f2836;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display: flex; flex-direction: column;
+    height: 100dvh;
+    overflow: hidden;
+    touch-action: manipulation;
+    overscroll-behavior: none;
+    -webkit-user-select: none; user-select: none;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 18px 6px;
+  }
+  #dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #f87171; transition: background .3s;
+    flex: none;
+  }
+  #dot.ok { background: #4ade80; }
+  #dot.warn { background: #fbbf24; }
+  #timer {
+    flex: 1;
+    font: 700 46px/1.1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: 1px;
+  }
+  #timer.idle { color: var(--dim); }
+  #reset {
+    background: none; border: 1px solid #2b3648; color: var(--dim);
+    border-radius: 10px; padding: 10px 14px; font-size: 13px;
+    touch-action: manipulation;
+  }
+  #reset:active { color: var(--text); border-color: #46536b; }
+
+  main { flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 8px 18px; min-height: 0; }
+  .card {
+    background: var(--card); border-radius: 18px; padding: 16px 18px;
+    display: flex; flex-direction: column; justify-content: center;
+    min-height: 0; flex: 1;
+  }
+  .card.next { background: var(--card2); flex: 0.62; }
+  .lbl { color: var(--dim); font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 6px; }
+  #pos { float: right; color: var(--dim); font-weight: 600; font-variant-numeric: tabular-nums; }
+  #kw { font-size: clamp(22px, 7vw, 34px); font-weight: 700; line-height: 1.18; overflow-wrap: anywhere; }
+  #nkw { font-size: clamp(20px, 6vw, 28px); font-weight: 600; color: #c3cbd8; }
+  .placeholder { color: #556072; }
+
+  #bar {
+    padding: 4px 18px 8px; color: var(--dim); font-size: 13px; min-height: 24px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  footer {
+    display: flex; gap: 12px;
+    padding: 10px 18px 20px;
+  }
+  button.ctrl {
+    border: none; border-radius: 22px; color: #06251a;
+    font-weight: 700; font-size: 22px; letter-spacing: .02em;
+    display: flex; align-items: center; justify-content: center; gap: 12px;
+    touch-action: manipulation;
+    transition: transform .05s;
+  }
+  button.ctrl:active { transform: scale(.96); }
+  button.ctrl svg { display: block; }
+  #back {
+    flex: 1; min-height: 96px;
+    background: var(--back); color: var(--text);
+  }
+  #back:active { background: var(--back-press); }
+  #next {
+    flex: 1.7; min-height: 96px;
+    background: var(--accent);
+    font-size: 26px;
+  }
+  #next:active { background: var(--accent-press); }
+  button:disabled { opacity: .45; }
+</style>
+</head>
+<body>
+  <header>
+    <div id="dot"></div>
+    <div id="timer" class="idle">00:00</div>
+    <button id="reset" hidden>reset</button>
+  </header>
+
+  <main>
+    <section class="card now">
+      <div class="lbl">This slide <span id="pos"></span></div>
+      <div id="kw"><span class="placeholder">Connecting…</span></div>
+    </section>
+    <section class="card next">
+      <div class="lbl">Next slide
+        <svg width="11" height="11" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1l6 4-6 4z" fill="currentColor"/></svg>
+      </div>
+      <div id="nkw"><span class="placeholder">—</span></div>
+    </section>
+  </main>
+
+  <div id="bar"></div>
+
+  <footer>
+    <button id="back" class="ctrl" disabled>
+      <svg width="22" height="22" viewBox="0 0 10 10" aria-hidden="true"><path d="M8 1L2 5l6 4z" fill="currentColor"/></svg>
+      Back
+    </button>
+    <button id="next" class="ctrl" disabled>
+      Next
+      <svg width="24" height="24" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1l6 4-6 4z" fill="currentColor"/></svg>
+    </button>
+  </footer>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const els = { dot: $('dot'), timer: $('timer'), reset: $('reset'), pos: $('pos'), kw: $('kw'), nkw: $('nkw'), bar: $('bar'), back: $('back'), next: $('next') };
+
+  let ws = null, everOpened = false, retry = 0;
+  let clockOffset = 0;                 // serverNow - Date.now()
+  let firstNextAt = null;
+
+  const fmt = (ms) => {
+    ms = Math.max(0, ms);
+    const s = Math.floor(ms / 1000);
+    const m = Math.floor(s / 60), h = Math.floor(m / 60);
+    const two = (n) => String(n).padStart(2, '0');
+    return h > 0 ? h + ':' + two(m % 60) + ':' + two(s % 60) : two(m) + ':' + two(s % 60);
+  };
+
+  setInterval(() => {
+    if (firstNextAt) els.timer.textContent = fmt(Date.now() + clockOffset - firstNextAt);
+    else els.timer.textContent = '00:00';
+  }, 250);
+
+  function render(s) {
+    if (s.firstNextAt) { firstNextAt = s.firstNextAt; clockOffset = s.serverNow - Date.now(); els.timer.classList.remove('idle'); els.reset.hidden = false; }
+    else { firstNextAt = null; els.timer.classList.add('idle'); els.reset.hidden = true; }
+
+    els.pos.textContent = s.total ? (s.current + 1) + ' / ' + s.total : '';
+    if (s.keywords && s.keywords.length) {
+      els.kw.textContent = s.keywords.join(' · ');
+    } else if (s.ready) {
+      els.kw.innerHTML = '<span class="placeholder">Slide ' + (s.current + 1) + '</span>';
+    }
+    els.nkw.textContent = (s.nextKeyword || '').trim() || '—';
+
+    if (!s.ready) {
+      els.bar.textContent = s.indexing
+        ? 'Preparing deck — slide ' + (s.progress.done || 0) + (s.progress.total ? ' / ' + s.progress.total : '') + '…'
+        : 'Waiting for deck…';
+      els.next.disabled = els.back.disabled = true;
+    } else {
+      els.bar.textContent = s.tabTitle ? s.tabTitle.slice(0, 60) : '';
+      els.next.disabled = els.back.disabled = false;
+    }
+  }
+
+  function connect() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    let url = proto + '://' + location.host + '/ws';
+    const pin = localStorage.getItem('deck-remote-pin');
+    if (pin) url += '?pin=' + encodeURIComponent(pin);
+    ws = new WebSocket(url);
+
+    ws.onopen = () => { everOpened = true; retry = 0; els.dot.className = 'ok'; };
+    ws.onmessage = (ev) => {
+      try { const m = JSON.parse(ev.data); if (m.type === 'state') { els.dot.className = 'ok'; render(m); } } catch {}
+    };
+    ws.onclose = () => {
+      els.dot.className = everOpened ? 'warn' : 'warn';
+      els.next.disabled = els.back.disabled = true;
+      // if we never opened, maybe a pin is required
+      if (!everOpened) {
+        fetch('/api/state').then((r) => r.json()).then((s) => {
+          if (s && s.pinRequired && !localStorage.getItem('deck-remote-pin')) {
+            const p = prompt('This remote is protected. Enter the PIN:');
+            if (p) { localStorage.setItem('deck-remote-pin', p); }
+          }
+        }).catch(() => {});
+      }
+      retry++;
+      setTimeout(connect, Math.min(500 * retry, 5000));
+    };
+  }
+
+  function press(el, action) {
+    const fire = (e) => {
+      e.preventDefault();
+      if (ws && ws.readyState === 1) { ws.send(JSON.stringify({ a: action })); try { navigator.vibrate && navigator.vibrate(12); } catch {} wake(); }
+    };
+    el.addEventListener('touchstart', fire, { passive: false });
+    el.addEventListener('mousedown', fire);
+  }
+  press(els.next, 'next');
+  press(els.back, 'back');
+  els.reset.addEventListener('click', () => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ a: 'reset' })); });
+
+  // keep the phone screen awake while presenting
+  let wakeLock = null, audioHack = null;
+  async function wake() {
+    try {
+      if (!wakeLock && navigator.wakeLock) wakeLock = await navigator.wakeLock.request('screen');
+    } catch {}
+    if (!wakeLock && !audioHack) {
+      // plain-http fallback: a silent looping WebAudio oscillator keeps Chrome awake
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator(); const gain = ctx.createGain();
+        gain.gain.value = 0.00001; osc.connect(gain); gain.connect(ctx.destination); osc.start();
+        audioHack = { ctx, osc };
+      } catch {}
+    }
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && navigator.wakeLock && !wakeLock) {
+      navigator.wakeLock.request('screen').then((l) => wakeLock = l).catch(() => {});
+    }
+  });
+
+  fetch('/api/state').then((r) => r.json()).then(render).catch(() => {});
+  connect();
+})();
+</script>
+</body>
+</html>
