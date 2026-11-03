@@ -162,7 +162,7 @@
 
     els.pos.textContent = s.total ? (s.current + 1) + ' / ' + s.total : '';
     if (s.keywords && s.keywords.length) {
-      els.kw.textContent = s.keywords.join(' · ');
+      els.kw.textContent = s.keywords.join(' ');
     } else if (s.ready) {
       els.kw.innerHTML = '<span class="placeholder">Slide ' + (s.current + 1) + '</span>';
     }

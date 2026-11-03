@@ -166,8 +166,8 @@
         <p>Buttons send real key events to the Chrome tab. Advance from the laptop or a clicker instead, and the phone follows within a second.</p></div>
       <div class="feature"><div class="ico">⏱️</div><h3>Talk timer</h3>
         <p>Starts on your first press of <b>Next</b>, keeps counting across phone lock screens and reloads, resets when you want.</p></div>
-      <div class="feature"><div class="ico">🔍</div><h3>Slide descriptions</h3>
-        <p>1–7 words describing the current slide and 1 word for the next one, generated automatically by OCR during a one-time setup pass. Works with any deck, including private Google Slides.</p></div>
+      <div class="feature"><div class="ico">🔍</div><h3>AI slide descriptions</h3>
+        <p>A local <b>Gemma 4 E4B</b> vision model (llama.cpp) reads each slide — text, charts and all — and answers with the most helpful 1–4 word description. The first word of the next slide is your heads-up. 100% on-device.</p></div>
     </div>
   </section>
 
@@ -259,7 +259,7 @@ cd deck-remote
     <div class="grid grid3">
       <div class="feature"><h3>1 · Drive Chrome</h3><p>deck-remote attaches to the deck's tab over the Chrome DevTools protocol. Next/Back are real key events; transitions, embedded video and presenter view behave exactly as if you pressed the keyboard.</p></div>
       <div class="feature"><h3>2 · Watch the deck</h3><p>The tab is polled continuously — perceptual screenshot hashing for Google Slides, the PDF viewer's <code>#page=</code> URL for PDFs — so the phone stays in sync no matter how slides are advanced.</p></div>
-      <div class="feature"><h3>3 · Describe slides</h3><p>During setup, every slide is screenshotted and OCR'd. The largest text becomes the description: 1–7 words for the current slide, 1 word as a heads-up for the next.</p></div>
+      <div class="feature"><h3>3 · Describe slides</h3><p>Each slide's frame goes to a local Gemma 4 E4B vision model served by llama.cpp. It reads the whole slide and answers with the most helpful 1–4 words — nothing is sent to the internet.</p></div>
     </div>
     <details style="margin-top:14px">
       <summary>Why is the remote served by my computer and not this website?</summary>
@@ -272,14 +272,14 @@ cd deck-remote
 
   <section id="faq">
     <h2>FAQ</h2>
+    <details><summary>What does the installer do?</summary>
+      <p>Installs Node.js LTS via nvm if it's missing (no sudo), reinstalls dependencies cleanly for your OS/arch, downloads <b>llama.cpp</b> and the <b>Gemma 4 E4B</b> vision model (~6.2 GB, one time, resumable), and smoke-tests the model. It's idempotent.</p></details>
     <details><summary>Does it work with Google Slides?</summary>
       <p>Yes — open the deck in presentation mode (Ctrl/⌘+F5). For private decks, sign into Google once in the window deck-remote launches. Arrow-key-driven HTML decks work too.</p></details>
     <details><summary>And PDFs?</summary>
       <p>Yes — pass the file path: <code>./deck-remote --url ~/deck.pdf</code>. Navigation uses the PDF viewer's page anchors; any zoom level works.</p></details>
     <details><summary>Is it safe on conference Wi‑Fi?</summary>
-      <p>The remote is LAN-only and unauthenticated by default; run it with <code>--pin 1234</code> on shared networks. Nothing is sent to the internet — the OCR runs locally.</p></details>
-    <details><summary>What does the installer do?</summary>
-      <p>Installs Node.js LTS via nvm if it's missing (no sudo), reinstalls dependencies cleanly for your OS/arch, and pre-downloads the OCR language model. It's idempotent.</p></details>
+      <p>The remote is LAN-only and unauthenticated by default; run it with <code>--pin 1234</code> on shared networks. Slide frames never leave your machine — the AI runs locally.</p></details>
   </section>
 
   <footer>

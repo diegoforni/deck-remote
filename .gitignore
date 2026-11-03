@@ -6,3 +6,6 @@ test/phone-static.png
 docs-check.png
 deck-remote-bundle.tar.gz
 .node-bin-dir
+models/
+tools/
+*.log

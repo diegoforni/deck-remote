@@ -95,6 +95,7 @@ let cdp = null;
 let launchedChrome = null;
 let tessWorker = null;
 let lastActionAt = 0;
+let vlm = null;
 
 /* ------------------------------ CDP ------------------------------------ */
 
@@ -103,6 +104,7 @@ class CDP {
     this.ws = new WebSocket(wsUrl, { perMessageDeflate: false, maxPayload: 256 * 1024 * 1024 });
     this.nextId = 1;
     this.pending = new Map();
+    this.listeners = new Map();
     this.readyP = new Promise((res, rej) => {
       this.ws.on('open', res);
       this.ws.on('error', rej);
@@ -115,8 +117,16 @@ class CDP {
         this.pending.delete(msg.id);
         if (msg.error) rej(new Error(msg.error.message));
         else res(msg.result);
+      } else if (msg.method) {
+        for (const fn of this.listeners.get(msg.method) || []) {
+          try { fn(msg.params || {}); } catch {}
+        }
       }
     });
+  }
+  on(method, fn) {
+    if (!this.listeners.has(method)) this.listeners.set(method, []);
+    this.listeners.get(method).push(fn);
   }
   send(method, params = {}) {
     const id = this.nextId++;
@@ -197,6 +207,74 @@ function nearestSlide(hashHex) {
   return bestD <= HASH_MATCH_T ? best : -1;
 }
 
+/* ------------------------- screencast tracking -------------------------- */
+/* Page.captureScreenshot makes fullscreen Chrome flash on macOS, so live
+ * tracking uses Page.startScreencast instead: Chrome pushes a jpeg frame only
+ * when the page repaints. Frames are the single hash/description source when
+ * available; captureScreenshot is the fallback for browsers without it. */
+
+const screen = {
+  mode: 'unknown',      // 'frames' | 'captures'
+  active: false,        // any frame received
+  lastHash: null,
+  lastFrameAt: 0,
+  lastBuf: null,
+  frameCount: 0,
+};
+
+async function startScreencast() {
+  if (A['no-screencast']) { screen.mode = 'captures'; return; }
+  cdp.on('Page.screencastFrame', (p) => {
+    screen.frameCount++;
+    screen.lastFrameAt = Date.now();
+    screen.lastBuf = Buffer.from(p.data, 'base64');
+    screen.active = true;
+    dhashOf(screen.lastBuf).then((h) => { screen.lastHash = h; }).catch(() => {});
+    cdp.send('Page.screencastFrameAck', { sessionId: p.sessionId }).catch(() => {});
+  });
+  try {
+    await cdp.send('Page.startScreencast', {
+      format: 'jpeg', quality: 80, maxWidth: 1280, maxHeight: 900, everyNthFrame: 1,
+    });
+  } catch {
+    screen.mode = 'captures';
+    log('Screencast not available — falling back to screenshot polling (may flash in fullscreen).');
+    return;
+  }
+  // Chrome pushes one frame right away; wait briefly for it.
+  for (let i = 0; i < 12 && !screen.active; i++) await sleep(250);
+  screen.mode = screen.active ? 'frames' : 'captures';
+  if (screen.active) log('Screencast tracking active — zero forced captures, no fullscreen flashing.');
+  else {
+    try { await cdp.send('Page.stopScreencast'); } catch {}
+    log('No screencast frames — falling back to screenshot polling (may flash in fullscreen).');
+  }
+}
+
+/* Hash of whatever is currently on screen. Passive in frames mode. */
+async function pollHash() {
+  if (screen.mode === 'frames') return screen.lastHash;
+  return dhashOf(await smallShot());
+}
+
+/* In frames mode: wait until the frame stream has been quiet (stable slide).
+ * Returns { hash, buf } for hashing and descriptions. */
+async function stableView({ settleMs = 550, timeoutMs = 4000 } = {}) {
+  if (screen.mode !== 'frames') {
+    return { hash: await stableHash(), buf: await bigShot().catch(() => null) };
+  }
+  const t0 = Date.now();
+  let lastSeen = -1;
+  while (Date.now() - t0 < timeoutMs) {
+    if (screen.frameCount !== lastSeen) { lastSeen = screen.frameCount; await sleep(settleMs); continue; }
+    if (screen.lastHash && screen.lastBuf && Date.now() - screen.lastFrameAt >= settleMs - 150) {
+      return { hash: screen.lastHash, buf: screen.lastBuf };
+    }
+    await sleep(120);
+  }
+  return screen.lastHash ? { hash: screen.lastHash, buf: screen.lastBuf } : null;
+}
+
 /* ------------------------------- OCR ----------------------------------- */
 
 const STOPWORDS = new Set('the a an and or of to in on for with from by at as is are be been was were our your their we you it its this that these those will can shall not but if then than so such'.split(' '));
@@ -248,7 +326,7 @@ function describeSlide(words) {
     if (!best || score > best.score) best = { score, L };
   }
   const tw = best.L.words.slice().sort((a, b) => a.x - b.x).map((w) => w.t);
-  const keywords = tw.slice(0, 7);
+  const keywords = tw.slice(0, 4); // 1–4 words, same contract as the VLM describer
   const next = tw.find((t) => !STOPWORDS.has(t.toLowerCase())) || tw[0];
   return { keywords, next };
 }
@@ -267,21 +345,34 @@ async function ocr(buf) {
 
 async function ocrLoop() {
   for (;;) {
+    if (vlm && !vlm.healthy) { await sleep(500); continue; } // gemma still loading — don't waste slides on fallback OCR
     let i = state.slides.findIndex((s) => s.ocr === 'pending' && s.shot);
     const cur = state.current; // prioritize whatever is on screen now
     if (state.slides[cur] && state.slides[cur].ocr === 'pending' && state.slides[cur].shot) i = cur;
     if (i < 0) { await sleep(400); continue; }
     const sl = state.slides[i];
-    try {
-      const d = describeSlide(await ocr(sl.shot));
-      sl.keywords = d.keywords;
-      sl.next = d.next;
-      sl.ocr = 'done';
-      log(`Described slide ${i + 1}: "${d.keywords.join(' ')}" / next hint "${d.next ?? '—'}"`);
-    } catch (e) {
-      sl.ocr = 'fail';
-      log(`OCR failed for slide ${i + 1}: ${e.message}`);
+    if (!sl.shot) { sl.ocr = 'fail'; continue; }
+    let desc = null;
+    if (vlm && vlm.healthy) {
+      try {
+        const text = await vlm.describeResilient(sl.shot);
+        desc = { keywords: text.split(' '), next: text.split(' ')[0] };
+        log(`Gemma described slide ${i + 1}: “${text}”`);
+      } catch (e) {
+        log(`VLM failed on slide ${i + 1} (${e.message}) — using built-in OCR.`);
+      }
     }
+    if (!desc) {
+      try {
+        desc = describeSlide(await ocr(sl.shot));
+        log(`OCR described slide ${i + 1}: “${desc.keywords.join(' ')}”`);
+      } catch {
+        desc = { keywords: [], next: null };
+      }
+    }
+    sl.keywords = desc.keywords;
+    sl.next = desc.next || (desc.keywords[0] || null);
+    sl.ocr = 'done';
     sl.shot = null;
     broadcast();
   }
@@ -301,18 +392,18 @@ async function stableHash() {
 }
 
 async function captureSlide() {
-  const hashHex = await stableHash();
-  let shot = null;
-  try { shot = await bigShot(); } catch {}
-  state.slides.push({ hashHex, shot, keywords: [], next: null, ocr: 'pending' });
+  const v = await stableView();
+  if (!v) { state.slides.push({ hashHex: 'x', shot: null, keywords: [], next: null, ocr: 'fail' }); return; }
+  state.slides.push({ hashHex: v.hash, shot: v.buf, keywords: [], next: null, ocr: 'pending' });
 }
 
 async function advanceAndWaitChange(beforeHex) {
   await sendKey('ArrowRight');
-  for (let t = 0; t < 1700; t += 150) {
-    await sleep(150);
-    const h = await dhashOf(await smallShot());
-    if (hamming(h, beforeHex) > HASH_DIFF_T) return true;
+  const t0 = Date.now();
+  while (Date.now() - t0 < 1700) {
+    await sleep(screen.mode === 'frames' ? 120 : 150);
+    const h = await pollHash();
+    if (h && hamming(h, beforeHex) > HASH_DIFF_T) return true;
   }
   return false;
 }
@@ -349,10 +440,10 @@ async function indexDeck() {
       state.pdfOk = await gotoPdfPage(1);
       if (state.pdfOk && last >= 2) {
         // verify fragment navigation actually moves the view (not just the URL)
-        const h1 = await dhashOf(await smallShot());
+        const v1 = await stableView({ settleMs: 400 });
         await gotoPdfPage(2);
-        const h2 = await dhashOf(await smallShot());
-        state.pdfOk = hamming(h1, h2) > HASH_DIFF_T;
+        const v2 = await stableView({ settleMs: 500, timeoutMs: 3000 });
+        state.pdfOk = !!(v1 && v2 && hamming(v1.hash, v2.hash) > HASH_DIFF_T);
         if (!state.pdfOk) log('PDF fragment navigation does not move the view — falling back to keys.');
       }
       if (state.pdfOk) {
@@ -391,8 +482,8 @@ async function indexDeck() {
   await sendKey('Home');
   await sleep(800);
   try {
-    const h = await dhashOf(await smallShot());
-    if (hamming(h, state.slides[0].hashHex) > HASH_MATCH_T) {
+    const h = await pollHash();
+    if (h && hamming(h, state.slides[0].hashHex) > HASH_MATCH_T) {
       for (let i = 1; i < state.total; i++) { await sendKey('ArrowLeft'); await sleep(160); }
       await sleep(400);
     }
@@ -415,18 +506,18 @@ async function pollLoop() {
     await sleep(650);
     try {
       let idx = -1;
-      let hashIdx = -1;
-      if (state.slides.length) {
-        try { hashIdx = nearestSlide(await dhashOf(await smallShot())); } catch {}
+      let frameIdx = -1;
+      if (screen.mode === 'frames' && screen.lastHash) {
+        frameIdx = nearestSlide(screen.lastHash); // frames arrive on every repaint; passive
       }
       if (state.mode === 'pdf' && state.pdfOk) {
         const p = await readPdfPage();
         if (p) idx = Math.min(p - 1, state.total - 1);
-        // if the screenshot clearly matches a different indexed slide than the
-        // URL fragment claims, the viewer likely moved without updating the URL
-        if (hashIdx >= 0 && hashIdx !== idx) idx = hashIdx;
-      } else if (hashIdx >= 0) {
-        idx = hashIdx;
+        if (frameIdx >= 0 && frameIdx !== idx) idx = frameIdx;
+      } else if (frameIdx >= 0) {
+        idx = frameIdx;
+      } else if (screen.mode !== 'frames') {
+        idx = nearestSlide(await dhashOf(await smallShot())); // fallback: active polling
       }
       if (idx >= 0 && idx !== state.current) {
         if (state.current >= 0) log(`Slide changed: ${state.current + 1} → ${idx + 1}`);
@@ -451,9 +542,23 @@ async function doAdvance(dir) {
     return;
   }
   await sendKey(dir > 0 ? 'ArrowRight' : 'ArrowLeft');
-  if (state.total) {
-    const est = Math.min(Math.max(state.current + dir, 0), state.total - 1);
-    if (est !== state.current) { state.current = est; broadcast(); } // optimistic; poll corrects
+  const prev = state.current;
+  const est = state.total ? Math.min(Math.max(prev + dir, 0), state.total - 1) : prev;
+  if (est !== prev) { state.current = est; broadcast(); } // optimistic; frames correct within ~1s
+  if (screen.mode === 'frames') {
+    // confirm with the repaint frame the keypress should produce; revert if none
+    const t0 = Date.now();
+    (async () => {
+      while (Date.now() - t0 < 1200) {
+        if (screen.lastFrameAt > t0 && screen.lastHash) {
+          const i = nearestSlide(screen.lastHash);
+          if (i >= 0 && i !== state.current) { state.current = i; broadcast(); }
+          return;
+        }
+        await sleep(100);
+      }
+      if (est !== prev && state.current === est) { state.current = prev; broadcast(); }
+    })().catch(() => {});
   }
 }
 
@@ -491,9 +596,11 @@ function payload() {
     current: state.current,
     total: state.total,
     keywords: cur ? cur.keywords : [],
-    nextKeyword: nxt ? nxt.next : null,
+    nextKeyword: nxt ? (nxt.next || (nxt.keywords[0] || null)) : null,
     firstNextAt: state.firstNextAt,
     serverNow: Date.now(),
+    describer: vlm && vlm.healthy ? 'gemma-4-e4b' : 'ocr',
+    tracking: screen.mode === 'frames' ? 'screencast' : 'captures',
     tabTitle: state.tab ? state.tab.title : null,
   };
 }
@@ -695,7 +802,30 @@ async function main() {
   await cdp.send('Page.enable');
   await cdp.send('Runtime.enable');
 
+  await startScreencast();
+
   startHttpServer(lanUrls());
+
+  if (!A['no-vlm']) {
+    const { Vlm } = require('./lib/vlm');
+    vlm = new Vlm({
+      url: typeof A['vlm-url'] === 'string' ? A['vlm-url'] : undefined,
+      port: A['vlm-port'],
+      binary: typeof A['llama-server'] === 'string' ? A['llama-server'] : undefined,
+      model: typeof A['vlm-model'] === 'string' ? A['vlm-model'] : undefined,
+      mmproj: typeof A['vlm-mmproj'] === 'string' ? A['vlm-mmproj'] : undefined,
+      log,
+    });
+    vlm.start()
+      .then(() => log('Slide descriptions: Gemma 4 E4B (llama.cpp, local) ready.'))
+      .catch((e) => {
+        log(`Gemma/llama.cpp unavailable: ${e.message}`);
+        log('Descriptions fall back to built-in OCR (lower quality). Run: bash install.sh');
+        vlm = null;
+      });
+  } else {
+    log('VLM disabled (--no-vlm) — using built-in OCR.');
+  }
 
   ocrLoop().catch((e) => log('ocr loop crashed:', e.message));
   await indexDeck();
@@ -705,6 +835,7 @@ async function main() {
 process.on('SIGINT', () => {
   log('Shutting down.');
   try { cdp && cdp.close(); } catch {}
+  if (vlm) vlm.stop();
   if (launchedChrome) try { launchedChrome.kill(); } catch {}
   process.exit(0);
 });

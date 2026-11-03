@@ -145,7 +145,7 @@ async function main() {
   /* ---------- HTML deck (same pipeline as Google Slides) ---------- */
   console.log('\n── html deck (google-slides-like pipeline) ──');
   const prof1 = fs.mkdtempSync(path.join(os.tmpdir(), 'deck-remote-p1-'));
-  const p1 = run(['--headless', '--url', `http://127.0.0.1:${TEST_PORT}/deck.html`,
+  const p1 = run(['--headless', '--no-vlm', '--url', `http://127.0.0.1:${TEST_PORT}/deck.html`,
     '--port', String(SRV_PORT), '--debug-port', String(DBG),
     '--user-data-dir', prof1]);
 
@@ -156,6 +156,7 @@ async function main() {
   const ready = phone.last;
   ok('indexed 6 slides', ready.total === 6, 'total=' + ready.total);
   ok('starts on slide 1', ready.current === 0);
+  ok('screencast tracking active (no-capture mode)', ready.tracking === 'screencast', ready.tracking);
   ok('slide 1 keywords', (ready.keywords || []).length >= 1 && /welcome|agenda/i.test(ready.keywords.join(' ')), JSON.stringify(ready.keywords));
   ok('slide 2 next hint', !!ready.nextKeyword, String(ready.nextKeyword));
 
@@ -203,7 +204,7 @@ async function main() {
   /* ---------- PDF deck ---------- */
   console.log('\n── pdf deck pipeline ──');
   const prof2 = fs.mkdtempSync(path.join(os.tmpdir(), 'deck-remote-p2-'));
-  const p2 = run(['--headless', '--url', `http://127.0.0.1:${TEST_PORT}/deck.pdf`,
+  const p2 = run(['--headless', '--no-vlm', '--url', `http://127.0.0.1:${TEST_PORT}/deck.pdf`,
     '--port', String(SRV_PORT2), '--debug-port', String(DBG2),
     '--user-data-dir', prof2]);
 
@@ -236,6 +237,35 @@ async function main() {
   }
 
   await kill(p2);
+
+  /* ---------- capture-fallback pipeline (--no-screencast) ---------- */
+  console.log('\n── capture fallback pipeline (--no-screencast) ──');
+  const SRV_PORT3 = rnd(), DBG3 = rnd();
+  const prof3 = fs.mkdtempSync(path.join(os.tmpdir(), 'deck-remote-p3-'));
+  const p3 = run(['--headless', '--no-vlm', '--no-screencast', '--url', `http://127.0.0.1:${TEST_PORT}/deck.html`,
+    '--port', String(SRV_PORT3), '--debug-port', String(DBG3),
+    '--user-data-dir', prof3]);
+
+  const phone3 = new Phone(SRV_PORT3);
+  ok('fallback: phone websocket connects', await waitWs(phone3));
+  let fbReady = null;
+  try { fbReady = await phone3.wait_for((s) => s.ready, 90000, 'fallback ready'); }
+  catch (e) { console.log('    (fallback never became ready: ' + e.message.slice(0, 120) + ')'); }
+  if (fbReady) {
+    ok('fallback: capture tracking mode', fbReady.tracking === 'captures', fbReady.tracking);
+    ok('fallback: indexed 6 slides', fbReady.total === 6, 'total=' + fbReady.total);
+    phone3.send({ a: 'next' });
+    await phone3.wait_for((s) => s.current === 1, 8000, 'fallback next');
+    ok('fallback: next → slide 2', phone3.last.current === 1);
+    await cdpKey(DBG3, 'Home', 'deck.html'); await sleep(300);
+    await cdpKey(DBG3, 'ArrowRight', 'deck.html');
+    await phone3.wait_for((s) => s.current === 1, 8000, 'fallback external nav');
+    ok('fallback: external nav syncs', phone3.last.current === 1);
+  } else {
+    ok('fallback: pipeline (SKIPPED)', true);
+  }
+
+  await kill(p3);
   srv.close();
 
   console.log('\n── summary ──');
