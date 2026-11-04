@@ -277,7 +277,6 @@ async function stableView({ settleMs = 550, timeoutMs = 4000 } = {}) {
 
 /* ------------------------------- OCR ----------------------------------- */
 
-const STOPWORDS = new Set('the a an and or of to in on for with from by at as is are be been was were our your their we you it its this that these those will can shall not but if then than so such'.split(' '));
 
 function extractWords(data) {
   const out = [];
@@ -303,7 +302,7 @@ function describeSlide(words) {
     .filter((w) => w.conf >= 50 && /[A-Za-z0-9]/.test(w.text))
     .map((w) => ({ ...w, t: w.text.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, '') }))
     .filter((w) => w.t.length > 0);
-  if (!cand.length) return { keywords: [], next: null };
+  if (!cand.length) return { keywords: [] };
   const hs = cand.map((w) => w.h).sort((a, b) => a - b);
   const mh = hs[Math.floor(hs.length / 2)] || 1;
 
@@ -326,9 +325,8 @@ function describeSlide(words) {
     if (!best || score > best.score) best = { score, L };
   }
   const tw = best.L.words.slice().sort((a, b) => a.x - b.x).map((w) => w.t);
-  const keywords = tw.slice(0, 4); // 1–4 words, same contract as the VLM describer
-  const next = tw.find((t) => !STOPWORDS.has(t.toLowerCase())) || tw[0];
-  return { keywords, next };
+  const keywords = tw.slice(0, 5); // 1–5 words, same contract as the VLM describer
+  return { keywords };
 }
 
 async function ocr(buf) {
@@ -356,7 +354,7 @@ async function ocrLoop() {
     if (vlm && vlm.healthy) {
       try {
         const text = await vlm.describeResilient(sl.shot);
-        desc = { keywords: text.split(' '), next: text.split(' ')[0] };
+        desc = { keywords: text.split(' ') };
         log(`Gemma described slide ${i + 1}: “${text}”`);
       } catch (e) {
         log(`VLM failed on slide ${i + 1} (${e.message}) — using built-in OCR.`);
@@ -367,11 +365,10 @@ async function ocrLoop() {
         desc = describeSlide(await ocr(sl.shot));
         log(`OCR described slide ${i + 1}: “${desc.keywords.join(' ')}”`);
       } catch {
-        desc = { keywords: [], next: null };
+        desc = { keywords: [] };
       }
     }
     sl.keywords = desc.keywords;
-    sl.next = desc.next || (desc.keywords[0] || null);
     sl.ocr = 'done';
     sl.shot = null;
     broadcast();
@@ -393,8 +390,8 @@ async function stableHash() {
 
 async function captureSlide() {
   const v = await stableView();
-  if (!v) { state.slides.push({ hashHex: 'x', shot: null, keywords: [], next: null, ocr: 'fail' }); return; }
-  state.slides.push({ hashHex: v.hash, shot: v.buf, keywords: [], next: null, ocr: 'pending' });
+  if (!v) { state.slides.push({ hashHex: 'x', shot: null, keywords: [], ocr: 'fail' }); return; }
+  state.slides.push({ hashHex: v.hash, shot: v.buf, keywords: [], ocr: "pending" });
 }
 
 async function advanceAndWaitChange(beforeHex) {
@@ -596,10 +593,10 @@ function payload() {
     current: state.current,
     total: state.total,
     keywords: cur ? cur.keywords : [],
-    nextKeyword: nxt ? (nxt.next || (nxt.keywords[0] || null)) : null,
+    nextKeyword: nxt && nxt.keywords.length ? nxt.keywords.join(' ') : null, // full description of the next slide
     firstNextAt: state.firstNextAt,
     serverNow: Date.now(),
-    describer: vlm && vlm.healthy ? 'gemma-4-e4b' : 'ocr',
+    describer: vlm && vlm.healthy ? 'gemma-4-e2b' : 'ocr',
     tracking: screen.mode === 'frames' ? 'screencast' : 'captures',
     tabTitle: state.tab ? state.tab.title : null,
   };
@@ -817,7 +814,7 @@ async function main() {
       log,
     });
     vlm.start()
-      .then(() => log('Slide descriptions: Gemma 4 E4B (llama.cpp, local) ready.'))
+      .then(() => log('Slide descriptions: Gemma 4 E2B (llama.cpp, local) ready.'))
       .catch((e) => {
         log(`Gemma/llama.cpp unavailable: ${e.message}`);
         log('Descriptions fall back to built-in OCR (lower quality). Run: bash install.sh');

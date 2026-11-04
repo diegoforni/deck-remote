@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Verifies the local llama.cpp + Gemma 4 E4B describer end-to-end:
+/* Verifies the local llama.cpp + Gemma 4 E2B describer end-to-end:
  * renders a synthetic slide, asks Gemma for 1–4 words, prints the result. */
 'use strict';
 
@@ -24,7 +24,7 @@ const { Vlm } = require('../lib/vlm');
   const secs = ((Date.now() - t0) / 1000).toFixed(1);
   console.log(`Gemma described the test slide as: "${desc}"  (${secs}s)`);
   const words = desc.trim().split(/\s+/);
-  if (words.length < 1 || words.length > 4) throw new Error(`expected 1-4 words, got: ${desc}`);
+  if (words.length < 1 || words.length > 5) throw new Error(`expected 1-5 words, got: ${desc}`);
   console.log('VLM SMOKE OK');
   vlm.stop();
   process.exit(0);

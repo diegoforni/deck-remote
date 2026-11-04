@@ -5,7 +5,7 @@
 #   1. Node.js >= 18 (via nvm, only if missing)
 #   2. npm dependencies
 #   3. llama.cpp (prebuilt binary from the llama.cpp releases)
-#   4. Gemma 4 E4B vision model (~6.2 GB, one time, resumable)
+#   4. Gemma 4 E2B vision model (~4.4 GB, one time, resumable)
 #   5. built-in OCR fallback cache + a live smoke test of Gemma
 #
 # Idempotent: re-run any time. Safe after scp'ing the folder from another
@@ -19,11 +19,11 @@ warn() { printf '\033[1;33mWarning:\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31mError:\033[0m %s\n' "$*" >&2; exit 1; }
 
 LLAMA_TAG="${LLAMA_TAG:-b12078}"
-MODEL_REPO="google/gemma-4-E4B-it-qat-q4_0-gguf"
-MODEL_FILE="gemma-4-E4B_q4_0-it.gguf"
-MMPROJ_FILE="gemma-4-E4B-it-mmproj.gguf"
-MODEL_SIZE=5154941280
-MMPROJ_SIZE=991552256
+MODEL_REPO="google/gemma-4-E2B-it-qat-q4_0-gguf"
+MODEL_FILE="gemma-4-E2B_q4_0-it.gguf"
+MMPROJ_FILE="gemma-4-E2B-it-mmproj.gguf"
+MODEL_SIZE=3349516256
+MMPROJ_SIZE=986833664
 
 # ---- 1. Node.js >= 18 ----------------------------------------------------
 node_ok() {
@@ -116,7 +116,7 @@ if ! install_llama || ! llama_works; then
 fi
 llama_works || die "llama-server is not runnable on this system"
 
-# ---- 4. Gemma 4 E4B model (~6.2 GB, resumable) -----------------------------
+# ---- 4. Gemma 4 E2B model (~4.4 GB, resumable) -----------------------------
 fsize() { stat -f%z "$1" 2>/dev/null || stat -c%s "$1" 2>/dev/null || echo 0; }
 
 fetch_model() { # $1=file $2=size $3=label
@@ -132,7 +132,7 @@ fetch_model() { # $1=file $2=size $3=label
   mv "models/$1.part" "models/$1"
 }
 
-fetch_model "$MODEL_FILE" "$MODEL_SIZE" "Gemma 4 E4B model" || die "model download failed"
+fetch_model "$MODEL_FILE" "$MODEL_SIZE" "Gemma 4 E2B model" || die "model download failed"
 fetch_model "$MMPROJ_FILE" "$MMPROJ_SIZE" "Gemma vision projector" || die "mmproj download failed"
 
 # ---- 5. OCR fallback cache (fast, keeps deck-remote usable without Gemma) --
@@ -143,7 +143,7 @@ node scripts/warm-ocr.js || warn "OCR fallback not cached (Gemma is the primary 
 say "Smoke-testing Gemma (first model load takes a minute)…"
 if [ -f .node-bin-dir ]; then export PATH="$(cat .node-bin-dir):$PATH"; fi
 if node scripts/vlm-smoke.js; then
-  say "Gemma 4 E4B ready."
+  say "Gemma 4 E2B ready."
 else
   warn "Gemma smoke test failed — deck-remote will still run with built-in OCR fallback."
 fi

@@ -167,7 +167,7 @@
       <div class="feature"><div class="ico">⏱️</div><h3>Talk timer</h3>
         <p>Starts on your first press of <b>Next</b>, keeps counting across phone lock screens and reloads, resets when you want.</p></div>
       <div class="feature"><div class="ico">🔍</div><h3>AI slide descriptions</h3>
-        <p>A local <b>Gemma 4 E4B</b> vision model (llama.cpp) reads each slide — text, charts and all — and answers with the most helpful 1–4 word description. The first word of the next slide is your heads-up. 100% on-device.</p></div>
+        <p>A local <b>Gemma 4 E2B</b> vision model (llama.cpp) reads each slide — text, charts and all — and answers with the most helpful 1–5 word description, in the slide's own language. The next slide's full description is your heads-up. 100% on-device.</p></div>
     </div>
   </section>
 
@@ -258,8 +258,8 @@ cd deck-remote
     <h2>How it works</h2>
     <div class="grid grid3">
       <div class="feature"><h3>1 · Drive Chrome</h3><p>deck-remote attaches to the deck's tab over the Chrome DevTools protocol. Next/Back are real key events; transitions, embedded video and presenter view behave exactly as if you pressed the keyboard.</p></div>
-      <div class="feature"><h3>2 · Watch the deck</h3><p>The tab is polled continuously — perceptual screenshot hashing for Google Slides, the PDF viewer's <code>#page=</code> URL for PDFs — so the phone stays in sync no matter how slides are advanced.</p></div>
-      <div class="feature"><h3>3 · Describe slides</h3><p>Each slide's frame goes to a local Gemma 4 E4B vision model served by llama.cpp. It reads the whole slide and answers with the most helpful 1–4 words — nothing is sent to the internet.</p></div>
+      <div class="feature"><h3>2 · Watch the deck</h3><p>The deck is tracked with Chrome's screencast stream — frames arrive only when the page repaints, so nothing flashes on screen — plus the PDF viewer's <code>#page=</code> URL for PDFs. The phone stays in sync no matter how slides are advanced.</p></div>
+      <div class="feature"><h3>3 · Describe slides</h3><p>Each slide's frame goes to a local Gemma 4 E2B vision model served by llama.cpp. It reads the whole slide and answers with the most helpful 1–5 words, in the slide's language — nothing is sent to the internet.</p></div>
     </div>
     <details style="margin-top:14px">
       <summary>Why is the remote served by my computer and not this website?</summary>
@@ -273,7 +273,7 @@ cd deck-remote
   <section id="faq">
     <h2>FAQ</h2>
     <details><summary>What does the installer do?</summary>
-      <p>Installs Node.js LTS via nvm if it's missing (no sudo), reinstalls dependencies cleanly for your OS/arch, downloads <b>llama.cpp</b> and the <b>Gemma 4 E4B</b> vision model (~6.2 GB, one time, resumable), and smoke-tests the model. It's idempotent.</p></details>
+      <p>Installs Node.js LTS via nvm if it's missing (no sudo), reinstalls dependencies cleanly for your OS/arch, downloads <b>llama.cpp</b> and the <b>Gemma 4 E2B</b> vision model (~6.2 GB, one time, resumable), and smoke-tests the model. It's idempotent.</p></details>
     <details><summary>Does it work with Google Slides?</summary>
       <p>Yes — open the deck in presentation mode (Ctrl/⌘+F5). For private decks, sign into Google once in the window deck-remote launches. Arrow-key-driven HTML decks work too.</p></details>
     <details><summary>And PDFs?</summary>
@@ -292,11 +292,11 @@ cd deck-remote
 <script>
 /* ---------- live demo ---------- */
 const deck = [
-  { kw: ['Welcome &', 'Agenda'],            next: 'Market' },
-  { kw: ['Market', 'Overview'],             next: 'Revenue' },
-  { kw: ['Revenue', 'Growth'],              next: 'Product' },
-  { kw: ['Product', 'Roadmap'],             next: 'Team' },
-  { kw: ['Team', 'Expansion'],              next: 'Closing' },
+  { kw: ['Welcome &', 'Agenda'],            next: 'Market Overview' },
+  { kw: ['Market', 'Overview'],             next: 'Revenue Growth' },
+  { kw: ['Revenue', 'Growth'],              next: 'Product Roadmap' },
+  { kw: ['Product', 'Roadmap'],             next: 'Team Expansion' },
+  { kw: ['Team', 'Expansion'],              next: 'Closing & Questions' },
   { kw: ['Closing &', 'Questions'],         next: null },
 ];
 const $ = (id) => document.getElementById(id);
