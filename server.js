@@ -643,12 +643,15 @@ function payload() {
     describer: vlm && vlm.healthy ? 'gemma-4-e2b' : 'ocr',
     tracking: screen.mode === 'frames' ? 'screencast' : 'captures',
     tabTitle: state.tab ? state.tab.title : null,
+    phones: wss.clients.size + relay.phones,
+    relayUrl: relay.status === 'connected' ? relay.url : null,
   };
 }
 
 function broadcast() {
   const s = JSON.stringify(payload());
   for (const c of wss.clients) if (c.readyState === WebSocket.OPEN) c.send(s);
+  if (relay.ws && relay.ws.readyState === WebSocket.OPEN) { try { relay.ws.send(s); } catch {} }
 }
 
 function startHttpServer(listenUrls) {
@@ -695,6 +698,56 @@ function startHttpServer(listenUrls) {
     for (const url of listenUrls) log('  → ' + url);
     qrcodeTerminal.generate(listenUrls[0], { small: true }, (q) => console.log(q));
     log('Scan the QR with your phone (same Wi‑Fi). Ctrl+C to quit.');
+  });
+}
+
+/* --------------------------- any-network relay -------------------------- */
+/* The presenter connects OUT to a public relay (relay.js); phones on any
+ * network join by room code. Small JSON only — slide images never traverse it. */
+
+const relay = { ws: null, status: 'off', phones: 0, url: null, code: null };
+
+function relayConnect() {
+  if (!A.relay || typeof A.relay !== 'string') return;
+  let base = String(A.relay).trim().replace(/\/+$/, '');
+  if (!/^wss?:\/\//.test(base)) base = 'wss://' + base;
+  relay.status = 'connecting';
+  const ws = new WebSocket(base + '/hub/presenter', { perMessageDeflate: false });
+  relay.ws = ws;
+
+  ws.on('open', () => {
+    ws.send(JSON.stringify({
+      t: 'hello',
+      code: typeof A['relay-code'] === 'string' ? A['relay-code'] : undefined,
+      pin: typeof A['relay-pin'] === 'string' ? A['relay-pin'] : undefined,
+    }));
+  });
+  ws.on('message', (raw) => {
+    let m; try { m = JSON.parse(raw.toString()); } catch { return; }
+    if (m.t === 'joined') {
+      relay.code = m.code;
+      relay.status = 'connected';
+      relay.url = base.replace(/^ws/, 'http') + '/r/' + m.code;
+      log(`Relay joined — share for phones on ANY network: ${relay.url}`);
+      try { qrcodeTerminal.generate(relay.url, { small: true }, (q) => console.log(q)); } catch {}
+      broadcast();
+    } else if (m.t === 'phones') {
+      relay.phones = m.n | 0;
+      broadcast(); // also refreshes state for the newly joined remote phone
+    } else if (m.t === 'error') {
+      log('Relay error: ' + (m.error || '?') + ' — remote phones disabled.');
+      relay.status = 'error';
+    } else if (m.a) {
+      handleAction(m.a); // remote phone pressed next/back/reset
+    }
+  });
+  ws.on('error', () => {});
+  ws.on('close', () => {
+    if (relay.status === 'connected') log('Relay connection lost — retrying every few seconds…');
+    relay.status = 'reconnecting';
+    relay.phones = 0;
+    broadcast();
+    setTimeout(relayConnect, 2500 + Math.floor(Math.random() * 2000));
   });
 }
 
@@ -847,6 +900,7 @@ async function main() {
   await startScreencast();
 
   startHttpServer(lanUrls());
+  relayConnect();
 
   if (!A['no-vlm']) {
     const { Vlm } = require('./lib/vlm');
@@ -877,6 +931,7 @@ async function main() {
 process.on('SIGINT', () => {
   log('Shutting down.');
   try { cdp && cdp.close(); } catch {}
+  try { relay.ws && relay.ws.close(); } catch {}
   if (vlm) vlm.stop();
   if (launchedChrome) try { launchedChrome.kill(); } catch {}
   process.exit(0);

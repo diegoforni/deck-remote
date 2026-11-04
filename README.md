@@ -8,6 +8,9 @@ The tool runs on the computer that shows the deck. It drives the Chrome tab
 over the DevTools protocol and serves a mobile web app on your Wi‑Fi (QR code
 in the terminal). The phone gives you:
 
+- **Multiple phones at once** — every connected phone (same Wi‑Fi or across the
+  internet) sees the same live state, can press Next/Back, and the status bar
+  shows how many phones are connected.
 - **Next / Back buttons** that control the actual Chrome tab (real key events,
   so presenter view, transitions and embedded video all behave normally).
 - **A talk timer** that starts on your *first press of Next* and keeps
@@ -29,6 +32,31 @@ Computer (deck in Chrome)          Phone (same Wi‑Fi)
 │ screenshots + OCR     │          │ timer, keywords  │
 └───────────────────────┘          └──────────────────┘
 ```
+
+## Phones on ANY network (relay mode)
+
+By default phones must reach the presenting computer directly (same Wi‑Fi,
+hotspot, or a VPN like ZeroTier). For phones on **any network** — cellular,
+guest Wi‑Fi with client isolation, another continent — run the relay on any
+host with a public address (a cheap VPS is plenty; it relays only small JSON
+messages, never slide images):
+
+```bash
+node relay.js --port 8676          # on the public host; open the port in its firewall
+```
+
+Then start the presenter with the relay address:
+
+```bash
+./deck-remote --relay ws://<relay-host>:8676 --url ~/deck.pdf
+# add --relay-pin 4321 so remote phones also need a PIN
+```
+
+deck-remote connects **outbound** to the relay (no ports opened on the
+presenting machine), prints a **second QR code** whose URL works from any
+network, and keeps both local and remote phones in sync. Room codes rotate
+each session; combine with `--relay-pin` on untrusted networks. If the relay
+connection drops, it reconnects automatically and re-binds the same code.
 
 ## Requirements
 
@@ -137,6 +165,9 @@ screencast, deck-remote automatically falls back to screenshot polling.
 --vlm-model <path>    Model GGUF (default models/gemma-4-E2B_q4_0-it.gguf)
 --vlm-mmproj <path>   Vision projector GGUF (default models/gemma-4-E2B-it-mmproj.gguf)
 --no-screencast       Disable screencast tracking (use screenshot polling)
+--relay <url>         Connect to a relay.js host so phones work on ANY network (ws:// or wss://)
+--relay-pin <code>    PIN remote phones must enter when joining via the relay
+--relay-code <code>   Request a fixed room code from the relay
 --chrome-path <path>  Chrome/Chromium binary to launch (default: auto-detect, incl. macOS paths)
 --user-data-dir <dir> Profile dir for the launched Chrome (default ~/deck-remote-chrome-profile)
 --list-tabs           Print open tabs and exit

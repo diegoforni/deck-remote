@@ -163,7 +163,7 @@
     <h2>What the phone gives you</h2>
     <div class="grid grid3">
       <div class="feature"><div class="ico">🎯</div><h3>Next / Back, really in sync</h3>
-        <p>Buttons send real key events to the Chrome tab. Advance from the laptop or a clicker instead, and the phone follows within a second.</p></div>
+        <p>Buttons send real key events to the Chrome tab. Advance from the laptop or a clicker instead, and the phone follows within a second. <b>Multiple phones</b> can connect at once — everyone sees the same live state.</p></div>
       <div class="feature"><div class="ico">⏱️</div><h3>Talk timer</h3>
         <p>Starts on your first press of <b>Next</b>, keeps counting across phone lock screens and reloads, resets when you want.</p></div>
       <div class="feature"><div class="ico">🔍</div><h3>AI slide descriptions</h3>
@@ -276,6 +276,8 @@ cd deck-remote
       <p>Installs Node.js LTS via nvm if it's missing (no sudo), reinstalls dependencies cleanly for your OS/arch, downloads <b>llama.cpp</b> and the <b>Gemma 4 E2B</b> vision model (~6.2 GB, one time, resumable), and smoke-tests the model. It's idempotent.</p></details>
     <details><summary>Does it work with Google Slides?</summary>
       <p>Yes — open the deck in presentation mode (Ctrl/⌘+F5). For private decks, sign into Google once in the window deck-remote launches. Arrow-key-driven HTML decks work too.</p></details>
+    <details><summary>My phone is on a different network / guest Wi‑Fi. Now what?</summary>
+      <p>Run <code>node relay.js</code> on any host with a public address and start the presenter with <code>--relay ws://that-host:8676</code>. deck-remote connects outbound, prints a second QR code whose URL works from <b>any</b> network (cellular included), and keeps local + remote phones in sync. The relay only carries small control/state JSON — never slide images.</p></details>
     <details><summary>And PDFs?</summary>
       <p>Yes — pass the file path: <code>./deck-remote --url ~/deck.pdf</code>. Navigation uses the PDF viewer's page anchors; any zoom level works.</p></details>
     <details><summary>Is it safe on conference Wi‑Fi?</summary>

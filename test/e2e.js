@@ -92,17 +92,17 @@ async function httpGet(port, p) {
 }
 
 /* spawn with line-buffered prefixed logging so output can't swallow test lines */
+function prefix(stream, tag) {
+  let buf = '';
+  stream.on('data', (d) => {
+    buf += d.toString();
+    const lines = buf.split('\n');
+    buf = lines.pop();
+    for (const l of lines) console.log('    ' + tag + ' ' + l);
+  });
+}
 function run(args) {
   const p = spawn('node', [path.join(ROOT, 'server.js'), ...args], { cwd: ROOT });
-  const prefix = (stream, tag) => {
-    let buf = '';
-    stream.on('data', (d) => {
-      buf += d.toString();
-      const lines = buf.split('\n');
-      buf = lines.pop();
-      for (const l of lines) console.log('    ' + tag + ' ' + l);
-    });
-  };
   prefix(p.stdout, '|'); prefix(p.stderr, '!');
   return p;
 }
@@ -297,6 +297,52 @@ async function main() {
   }
 
   await kill(p4);
+
+  /* ---------- any-network relay + multiple phones ---------- */
+  console.log('\n── relay (any-wifi) + multi-phone ──');
+  const RPORT = rnd(), SRV_PORT5 = rnd(), DBG5 = rnd();
+  const relayP = spawn('node', [path.join(ROOT, 'relay.js'), '--port', String(RPORT)], { cwd: ROOT });
+  prefix(relayP.stdout, 'R'); relayP.stderr && prefix(relayP.stderr, 'R!');
+  await sleep(1200);
+  const rHealth = await httpGet(RPORT, '/health');
+  ok('relay: healthy', rHealth.status === 200 && JSON.parse(rHealth.body.toString()).ok);
+
+  const prof5 = fs.mkdtempSync(path.join(os.tmpdir(), 'deck-remote-p5-'));
+  const p5 = run(['--headless', '--no-vlm', '--url', `http://127.0.0.1:${TEST_PORT}/deck.html`,
+    '--port', String(SRV_PORT5), '--debug-port', String(DBG5),
+    '--relay', `ws://127.0.0.1:${RPORT}`,
+    '--user-data-dir', prof5]);
+
+  const phoneA = new Phone(SRV_PORT5);
+  ok('relay: local phone connects', await waitWs(phoneA));
+  await phoneA.wait_for((s) => s.ready && s.relayUrl, 120000, 'relay joined + deck ready');
+  const relayUrl = phoneA.last.relayUrl;
+  const code = /\/r\/([A-Za-z0-9]+)/.exec(relayUrl)[1];
+  ok('relay: presenter joined, public url issued', !!code, relayUrl);
+
+  const relayUi = await httpGet(RPORT, '/r/' + code);
+  ok('relay: serves phone UI at /r/CODE', relayUi.status === 200 && relayUi.body.toString().includes('<!doctype html>'));
+
+  // a phone on ANOTHER network (via relay)
+  const phoneB = new Phone(RPORT);
+  phoneB.url = `ws://127.0.0.1:${RPORT}/hub/phone?code=${code}`;
+  ok('relay: remote phone connects', await waitWs(phoneB));
+  await phoneB.wait_for((s) => s && s.type === 'state', 8000, 'state via relay');
+  ok('relay: remote phone receives live state', phoneB.last.current === 0);
+
+  phoneB.send({ a: 'next' });
+  await phoneA.wait_for((s) => s.current === 1, 8000, 'remote phone next reaches deck');
+  ok('relay: remote phone controls deck', phoneA.last.current === 1);
+
+  phoneA.send({ a: 'back' });
+  await phoneB.wait_for((s) => s.current === 0, 8000, 'local phone back reaches remote phone');
+  ok('relay: local phone controls reach remote phone', phoneB.last.current === 0);
+
+  await phoneA.wait_for((s) => s.phones >= 2, 8000, 'phone count propagates');
+  ok('multi-phone: count ≥ 2', phoneA.last.phones >= 2, 'phones=' + (phoneA.last ? phoneA.last.phones : '?'));
+
+  await kill(p5);
+  try { relayP.kill('SIGKILL'); } catch {}
   srv.close();
 
   console.log('\n── summary ──');
