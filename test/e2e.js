@@ -266,6 +266,37 @@ async function main() {
   }
 
   await kill(p3);
+
+  /* ---------- stalled-screencast pipeline (Mac-like: frames stop after load) ---------- */
+  console.log('\n── stalled-screencast pipeline (simulates Mac Chrome) ──');
+  const SRV_PORT4 = rnd(), DBG4 = rnd();
+  const prof4 = fs.mkdtempSync(path.join(os.tmpdir(), 'deck-remote-p4-'));
+  const p4 = run(['--headless', '--no-vlm', '--simulate-frame-stall', '--url', `http://127.0.0.1:${TEST_PORT}/deck.html`,
+    '--port', String(SRV_PORT4), '--debug-port', String(DBG4),
+    '--user-data-dir', prof4]);
+
+  const phone4 = new Phone(SRV_PORT4);
+  ok('stall: phone websocket connects', await waitWs(phone4));
+  let stReady = null;
+  try { stReady = await phone4.wait_for((s) => s.ready, 120000, 'stall ready'); }
+  catch (e) { console.log('    (stall never became ready: ' + e.message.slice(0, 150) + ')'); }
+  if (stReady) {
+    ok('stall: indexed all 6 slides despite stalled frames', stReady.total === 6, 'total=' + stReady.total);
+    phone4.send({ a: 'next' });
+    await phone4.wait_for((s) => s.current === 1, 8000, 'stall next');
+    ok('stall: next → slide 2', phone4.last.current === 1);
+    // after 3 strikes the server must have degraded to capture polling
+    ok('stall: degraded to capture polling', phone4.last.tracking === 'captures', phone4.last.tracking);
+    await cdpKey(DBG4, 'Home', 'deck.html'); await sleep(300);
+    await cdpKey(DBG4, 'ArrowRight', 'deck.html');
+    await cdpKey(DBG4, 'ArrowRight', 'deck.html');
+    await phone4.wait_for((s) => s.current === 2, 8000, 'stall external nav');
+    ok('stall: external keyboard nav syncs', phone4.last.current === 2);
+  } else {
+    ok('stall: pipeline (FAILED — this is the Mac regression scenario)', false, 'not ready');
+  }
+
+  await kill(p4);
   srv.close();
 
   console.log('\n── summary ──');

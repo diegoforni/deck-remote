@@ -220,11 +220,26 @@ const screen = {
   lastFrameAt: 0,
   lastBuf: null,
   frameCount: 0,
+  strikes: 0,           // expected-frame misses; 3+ ⇒ frames unreliable ⇒ capture mode
 };
+
+/* Called whenever a repaint frame was expected but never arrived. */
+function frameStrike(where) {
+  screen.strikes++;
+  if (screen.mode !== 'frames') return;
+  log(`Screencast frame missing (${where}) — verifying with screenshots.`);
+  if (screen.strikes >= 3) {
+    screen.mode = 'captures';
+    try { cdp.send('Page.stopScreencast').catch(() => {}); } catch {}
+    log('Screencast is unreliable on this browser — switching to screenshot polling (may flash in fullscreen).');
+    broadcast();
+  }
+}
 
 async function startScreencast() {
   if (A['no-screencast']) { screen.mode = 'captures'; return; }
   cdp.on('Page.screencastFrame', (p) => {
+    if (A['simulate-frame-stall'] && screen.frameCount >= 3) return; // test hook: frames stop after load, like some Mac Chrome builds
     screen.frameCount++;
     screen.lastFrameAt = Date.now();
     screen.lastBuf = Buffer.from(p.data, 'base64');
@@ -389,19 +404,40 @@ async function stableHash() {
 }
 
 async function captureSlide() {
-  const v = await stableView();
-  if (!v) { state.slides.push({ hashHex: 'x', shot: null, keywords: [], ocr: 'fail' }); return; }
-  state.slides.push({ hashHex: v.hash, shot: v.buf, keywords: [], ocr: "pending" });
+  let hash = null, buf = null;
+  if (screen.mode === 'frames' && Date.now() - screen.lastFrameAt < 3000) {
+    const v = await stableView();                    // frames fresh → passive
+    if (v) { hash = v.hash; buf = v.buf; }
+  }
+  if (!hash) {                                       // frames stale/stalled → active captures
+    hash = await stableHash();
+    try { buf = await bigShot(); } catch {}
+    if (Date.now() - screen.lastFrameAt >= 3000 && screen.mode === 'frames') frameStrike('indexing capture');
+  }
+  state.slides.push({ hashHex: hash, shot: buf, keywords: [], ocr: buf ? 'pending' : 'fail' });
 }
 
 async function advanceAndWaitChange(beforeHex) {
   await sendKey('ArrowRight');
   const t0 = Date.now();
+  let captures = screen.mode !== 'frames';
   while (Date.now() - t0 < 1700) {
-    await sleep(screen.mode === 'frames' ? 120 : 150);
-    const h = await pollHash();
-    if (h && hamming(h, beforeHex) > HASH_DIFF_T) return true;
+    await sleep(captures ? 150 : 120);
+    if (!captures) {
+      if (screen.lastFrameAt > t0 && screen.lastHash) {
+        if (hamming(screen.lastHash, beforeHex) > HASH_DIFF_T) return true;
+      } else if (Date.now() - t0 > 650) {
+        // no frame since the keypress — screencast may have stalled on this
+        // browser; fall back to capture comparison for the rest of the wait
+        captures = true;
+        frameStrike('advance detection');
+      }
+    } else {
+      const h = await dhashOf(await smallShot());
+      if (h && hamming(h, beforeHex) > HASH_DIFF_T) return true;
+    }
   }
+  if (screen.mode === 'frames' && screen.lastFrameAt <= t0) frameStrike('advance timeout');
   return false;
 }
 
@@ -436,11 +472,13 @@ async function indexDeck() {
     if (last) {
       state.pdfOk = await gotoPdfPage(1);
       if (state.pdfOk && last >= 2) {
-        // verify fragment navigation actually moves the view (not just the URL)
-        const v1 = await stableView({ settleMs: 400 });
+        // verify fragment navigation actually moves the view (not just the URL);
+        // explicit captures — screencast frames can be stale at this point
+        const h1 = await dhashOf(await smallShot());
         await gotoPdfPage(2);
-        const v2 = await stableView({ settleMs: 500, timeoutMs: 3000 });
-        state.pdfOk = !!(v1 && v2 && hamming(v1.hash, v2.hash) > HASH_DIFF_T);
+        await sleep(300);
+        const h2 = await dhashOf(await smallShot());
+        state.pdfOk = !!(h1 && h2 && hamming(h1, h2) > HASH_DIFF_T);
         if (!state.pdfOk) log('PDF fragment navigation does not move the view — falling back to keys.');
       }
       if (state.pdfOk) {
@@ -504,7 +542,7 @@ async function pollLoop() {
     try {
       let idx = -1;
       let frameIdx = -1;
-      if (screen.mode === 'frames' && screen.lastHash) {
+      if (screen.mode === 'frames' && screen.lastHash && Date.now() - screen.lastFrameAt < 10000) {
         frameIdx = nearestSlide(screen.lastHash); // frames arrive on every repaint; passive
       }
       if (state.mode === 'pdf' && state.pdfOk) {
@@ -541,9 +579,9 @@ async function doAdvance(dir) {
   await sendKey(dir > 0 ? 'ArrowRight' : 'ArrowLeft');
   const prev = state.current;
   const est = state.total ? Math.min(Math.max(prev + dir, 0), state.total - 1) : prev;
-  if (est !== prev) { state.current = est; broadcast(); } // optimistic; frames correct within ~1s
+  if (est !== prev) { state.current = est; broadcast(); } // optimistic; confirmed below
   if (screen.mode === 'frames') {
-    // confirm with the repaint frame the keypress should produce; revert if none
+    // confirm with the repaint frame the keypress should produce
     const t0 = Date.now();
     (async () => {
       while (Date.now() - t0 < 1200) {
@@ -554,7 +592,13 @@ async function doAdvance(dir) {
         }
         await sleep(100);
       }
-      if (est !== prev && state.current === est) { state.current = prev; broadcast(); }
+      // no frame — screencast may have stalled; verify with a single capture
+      try {
+        const i = nearestSlide(await dhashOf(await smallShot()));
+        if (i >= 0 && i !== state.current) { state.current = i; broadcast(); return; }
+      } catch {}
+      frameStrike('action confirm');
+      if (est !== prev && state.current === est) { state.current = prev; broadcast(); } // keypress didn't land
     })().catch(() => {});
   }
 }
@@ -798,6 +842,7 @@ async function main() {
   await cdp.readyP;
   await cdp.send('Page.enable');
   await cdp.send('Runtime.enable');
+  try { await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true }); } catch {} // key events land even if the window isn't focused
 
   await startScreencast();
 
