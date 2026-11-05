@@ -33,30 +33,21 @@ Computer (deck in Chrome)          Phone (same Wi‑Fi)
 └───────────────────────┘          └──────────────────┘
 ```
 
-## Phones on ANY network (relay mode)
+## Connecting the phone (same Wi‑Fi)
 
-By default phones must reach the presenting computer directly (same Wi‑Fi,
-hotspot, or a VPN like ZeroTier). For phones on **any network** — cellular,
-guest Wi‑Fi with client isolation, another continent — run the relay on any
-host with a public address (a cheap VPS is plenty; it relays only small JSON
-messages, never slide images):
+deck-remote auto-detects the machine's networks and **ranks them**: the
+address of the interface that owns the default route (i.e. the Wi‑Fi/LAN
+you're actually on) is printed as a big QR code, followed by every other
+usable address — on a Mac that includes the mDNS name
+(`http://Mac-mini.local:8675`), which keeps working if the IP changes.
+Virtual interfaces (docker bridges, VM bridges, VPN tunnels) are sorted last.
 
-```bash
-node relay.js --port 8676          # on the public host; open the port in its firewall
-```
-
-Then start the presenter with the relay address:
-
-```bash
-./deck-remote --relay ws://<relay-host>:8676 --url ~/deck.pdf
-# add --relay-pin 4321 so remote phones also need a PIN
-```
-
-deck-remote connects **outbound** to the relay (no ports opened on the
-presenting machine), prints a **second QR code** whose URL works from any
-network, and keeps both local and remote phones in sync. Room codes rotate
-each session; combine with `--relay-pin` on untrusted networks. If the relay
-connection drops, it reconnects automatically and re-binds the same code.
+If the QR doesn't scan or connect, the terminal lists numbered alternates to
+type into the phone's browser, and `http://<any-of-those>/connect` is a
+tappable page with every option and a per-option QR. When the machine joins a
+different Wi‑Fi mid-run, deck-remote notices and re-prints the new options.
+Multiple phones can connect at once — everyone sees the same live state and
+the status bar shows how many are connected.
 
 ## Requirements
 
@@ -165,9 +156,6 @@ screencast, deck-remote automatically falls back to screenshot polling.
 --vlm-model <path>    Model GGUF (default models/gemma-4-E2B_q4_0-it.gguf)
 --vlm-mmproj <path>   Vision projector GGUF (default models/gemma-4-E2B-it-mmproj.gguf)
 --no-screencast       Disable screencast tracking (use screenshot polling)
---relay <url>         Connect to a relay.js host so phones work on ANY network (ws:// or wss://)
---relay-pin <code>    PIN remote phones must enter when joining via the relay
---relay-code <code>   Request a fixed room code from the relay
 --chrome-path <path>  Chrome/Chromium binary to launch (default: auto-detect, incl. macOS paths)
 --user-data-dir <dir> Profile dir for the launched Chrome (default ~/deck-remote-chrome-profile)
 --list-tabs           Print open tabs and exit

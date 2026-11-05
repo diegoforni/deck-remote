@@ -643,18 +643,16 @@ function payload() {
     describer: vlm && vlm.healthy ? 'gemma-4-e2b' : 'ocr',
     tracking: screen.mode === 'frames' ? 'screencast' : 'captures',
     tabTitle: state.tab ? state.tab.title : null,
-    phones: wss.clients.size + relay.phones,
-    relayUrl: relay.status === 'connected' ? relay.url : null,
+    phones: wss.clients.size,
   };
 }
 
 function broadcast() {
   const s = JSON.stringify(payload());
   for (const c of wss.clients) if (c.readyState === WebSocket.OPEN) c.send(s);
-  if (relay.ws && relay.ws.readyState === WebSocket.OPEN) { try { relay.ws.send(s); } catch {} }
 }
 
-function startHttpServer(listenUrls) {
+function startHttpServer() {
   const phoneHtml = fs.readFileSync(path.join(__dirname, 'public', 'phone.html'));
 
   const server = http.createServer(async (req, res) => {
@@ -664,12 +662,23 @@ function startHttpServer(listenUrls) {
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
         res.end(phoneHtml);
       } else if (u.pathname === '/qr') {
-        const png = await QRCode.toBuffer(listenUrls[0], { width: 480, margin: 2 });
+        const target = u.searchParams.get('u') || lanUrls()[0].url;
+        if (!/^https?:\/\//.test(target)) { res.writeHead(400); res.end('bad url'); return; }
+        const png = await QRCode.toBuffer(target, { width: 480, margin: 2 });
         res.writeHead(200, { 'content-type': 'image/png' });
         res.end(png);
+      } else if (u.pathname === '/connect') {
+        // tappable list of every address the phone can use
+        const urls = lanUrls();
+        const items = urls.map((e) =>
+          `<li><a href="${e.url}">${e.url}</a>${e.tag ? ` <small>(${e.tag})</small>` : ''} <img src="/qr?u=${encodeURIComponent(e.url)}" width="110" alt=""></li>`).join('');
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        res.end(`<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>Connect to deck-remote</title><style>body{font-family:-apple-system,Roboto,Arial,sans-serif;background:#0b0e14;color:#f2f5f9;padding:24px;max-width:640px;margin:auto}h1{font-size:22px}li{list-style:none;margin:14px 0;padding:14px;background:#161c26;border-radius:12px}a{color:#34d399;font-size:18px;font-weight:700;text-decoration:none}small{color:#8b95a5}img{display:block;margin-top:8px;border-radius:8px}p{color:#a9b4c4}</style>
+<h1>Connect to deck-remote</h1><p>Open the remote — all addresses below reach the same deck. Try the first one; if it fails, work down the list.</p><ul>${items}</ul>`);
       } else if (u.pathname === '/api/state') {
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ ...payload(), pinRequired: !!PIN }));
+        res.end(JSON.stringify({ ...payload(), pinRequired: !!PIN, urls: lanUrls().map((e) => e.url) }));
       } else {
         res.writeHead(404); res.end('not found');
       }
@@ -695,79 +704,88 @@ function startHttpServer(listenUrls) {
 
   server.listen(PORT, '0.0.0.0', () => {
     log(`Phone remote listening on port ${PORT}${PIN ? ' (pin: ' + PIN + ')' : ''}`);
-    for (const url of listenUrls) log('  → ' + url);
-    qrcodeTerminal.generate(listenUrls[0], { small: true }, (q) => console.log(q));
-    log('Scan the QR with your phone (same Wi‑Fi). Ctrl+C to quit.');
+    printConnectOptions('Scan with your phone (same Wi‑Fi):');
   });
 }
 
-/* --------------------------- any-network relay -------------------------- */
-/* The presenter connects OUT to a public relay (relay.js); phones on any
- * network join by room code. Small JSON only — slide images never traverse it. */
+/* ------------------------ network auto-detection ------------------------ */
+/* The presenter and the phone are assumed to be on the same Wi‑Fi. We pick
+ * the most likely address (the interface that owns the default route — i.e.
+ * the active Wi‑Fi/LAN) for the QR, and offer every other reachable address
+ * as alternates, plus the mDNS name on macOS. */
 
-const relay = { ws: null, status: 'off', phones: 0, url: null, code: null };
+const EXCLUDED_IF_RE = /^(lo|docker|br-|veth|virbr|bridge|awdl|llw|anpi|feth|gif|stf)/i; // containers/virtual — never reachable by a phone
+const VPN_IF_RE = /^(zt|tailscale|utun|tun|tap)/i; // works only if the phone joins the VPN — list last
+const isPrivateIp = (a) => /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(a);
 
-function relayConnect() {
-  if (!A.relay || typeof A.relay !== 'string') return;
-  let base = String(A.relay).trim().replace(/\/+$/, '');
-  if (!/^wss?:\/\//.test(base)) base = 'wss://' + base;
-  relay.status = 'connecting';
-  const ws = new WebSocket(base + '/hub/presenter', { perMessageDeflate: false });
-  relay.ws = ws;
-
-  ws.on('open', () => {
-    ws.send(JSON.stringify({
-      t: 'hello',
-      code: typeof A['relay-code'] === 'string' ? A['relay-code'] : undefined,
-      pin: typeof A['relay-pin'] === 'string' ? A['relay-pin'] : undefined,
-    }));
-  });
-  ws.on('message', (raw) => {
-    let m; try { m = JSON.parse(raw.toString()); } catch { return; }
-    if (m.t === 'joined') {
-      relay.code = m.code;
-      relay.status = 'connected';
-      relay.url = base.replace(/^ws/, 'http') + '/r/' + m.code;
-      log(`Relay joined — share for phones on ANY network: ${relay.url}`);
-      try { qrcodeTerminal.generate(relay.url, { small: true }, (q) => console.log(q)); } catch {}
-      broadcast();
-    } else if (m.t === 'phones') {
-      relay.phones = m.n | 0;
-      broadcast(); // also refreshes state for the newly joined remote phone
-    } else if (m.t === 'error') {
-      log('Relay error: ' + (m.error || '?') + ' — remote phones disabled.');
-      relay.status = 'error';
-    } else if (m.a) {
-      handleAction(m.a); // remote phone pressed next/back/reset
+function defaultRouteInterface() {
+  try {
+    if (process.platform === 'darwin') {
+      const out = execFileSync('route', ['-n', 'get', 'default'], { timeout: 2000 }).toString();
+      const m = /interface:\s*(\S+)/.exec(out);
+      return m ? m[1] : null;
     }
-  });
-  ws.on('error', () => {});
-  ws.on('close', () => {
-    if (relay.status === 'connected') log('Relay connection lost — retrying every few seconds…');
-    relay.status = 'reconnecting';
-    relay.phones = 0;
-    broadcast();
-    setTimeout(relayConnect, 2500 + Math.floor(Math.random() * 2000));
-  });
+    const routes = fs.readFileSync('/proc/net/route', 'utf8'); // linux
+    for (const line of routes.split('\n').slice(1)) {
+      const f = line.trim().split(/\s+/);
+      if (f.length >= 8 && f[1] === '00000000') return f[0];
+    }
+  } catch {}
+  return null;
 }
 
 function lanUrls() {
-  const urls = [];
-  const ifaces = os.networkInterfaces();
-  for (const name of Object.keys(ifaces)) {
-    for (const f of ifaces[name] || []) {
+  const primary = defaultRouteInterface();
+  const entries = [];
+  for (const [name, addrs] of Object.entries(os.networkInterfaces())) {
+    if (EXCLUDED_IF_RE.test(name)) continue;
+    for (const f of addrs || []) {
       if (f.family !== 'IPv4' || f.internal) continue;
-      urls.push(`http://${f.address}:${PORT}`);
+      if (/^169\.254\./.test(f.address)) continue; // link-local
+      const vpn = VPN_IF_RE.test(name);
+      const score = name === primary ? 0 : (!vpn && isPrivateIp(f.address)) ? 1 : !vpn ? 2 : 3;
+      entries.push({ addr: f.address, score, tag: name === primary ? 'this network' : vpn ? name : undefined });
     }
   }
-  if (!urls.length) urls.push(`http://127.0.0.1:${PORT}`);
-  // prefer typical LAN ranges first
-  urls.sort((a, b) => {
-    const score = (u) => /192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\./.test(u) ? 0 : 1;
-    return score(a) - score(b);
-  });
-  return urls.slice(0, 4);
+  entries.sort((a, b) => a.score - b.score);
+  const seen = new Set();
+  const urls = [];
+  for (const e of entries) {
+    if (seen.has(e.addr)) continue;
+    seen.add(e.addr);
+    urls.push({ url: `http://${e.addr}:${PORT}`, tag: e.tag });
+  }
+  // mDNS name — stable across network changes; macOS advertises it natively
+  if (process.platform === 'darwin') {
+    const host = os.hostname().replace(/\.local$/, '');
+    if (host && !/^\d+\.\d+\.\d+\.\d+$/.test(host) && !seen.has(host)) {
+      urls.splice(Math.min(1, urls.length), 0, { url: `http://${host}.local:${PORT}`, tag: 'this Mac, any of its networks' });
+    }
+  }
+  if (!urls.length) urls.push({ url: `http://127.0.0.1:${PORT}` });
+  return urls;
 }
+
+function printConnectOptions(headline) {
+  const urls = lanUrls();
+  log(headline);
+  for (const [i, e] of urls.slice(0, 6).entries()) log(`  ${i + 1}. ${e.url}${e.tag ? `   (${e.tag})` : ''}`);
+  if (urls.length > 6) log(`  … ${urls.length - 6} more (VPN etc.) on the /connect page`);
+  qrcodeTerminal.generate(urls[0].url, { small: true }, (q) => console.log(q));
+  if (urls.length > 1) log(`If the QR doesn't work, open option 2+ in the phone's browser — or ${urls[0].url}/connect for all options.`);
+}
+
+/* re-announce when the machine changes network (e.g. joins a different Wi‑Fi) */
+let lastNetSig = null;
+setInterval(() => {
+  const sig = lanUrls().map((e) => e.url).join('|');
+  if (lastNetSig === null) { lastNetSig = sig; return; }
+  if (sig !== lastNetSig) {
+    lastNetSig = sig;
+    log('Network changed.');
+    printConnectOptions('New connection options for your phone:');
+  }
+}, 15000).unref();
 
 /* --------------------------- chrome plumbing --------------------------- */
 
@@ -899,8 +917,7 @@ async function main() {
 
   await startScreencast();
 
-  startHttpServer(lanUrls());
-  relayConnect();
+  startHttpServer();
 
   if (!A['no-vlm']) {
     const { Vlm } = require('./lib/vlm');
@@ -931,7 +948,6 @@ async function main() {
 process.on('SIGINT', () => {
   log('Shutting down.');
   try { cdp && cdp.close(); } catch {}
-  try { relay.ws && relay.ws.close(); } catch {}
   if (vlm) vlm.stop();
   if (launchedChrome) try { launchedChrome.kill(); } catch {}
   process.exit(0);

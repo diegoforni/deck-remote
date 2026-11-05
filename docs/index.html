@@ -265,7 +265,7 @@ cd deck-remote
       <summary>Why is the remote served by my computer and not this website?</summary>
       <p>Browsers block insecure (<code>ws://</code>) WebSocket connections from HTTPS pages like this one,
         so a web-hosted page cannot talk to deck-remote on your LAN. Serving the phone UI straight from
-        your computer also means zero configuration: scan the QR and you're connected, no accounts, no relay,
+        your computer also means zero configuration: scan the QR and you're connected, no accounts, no setup,
         nothing leaves your network.</p>
     </details>
   </section>
@@ -276,8 +276,8 @@ cd deck-remote
       <p>Installs Node.js LTS via nvm if it's missing (no sudo), reinstalls dependencies cleanly for your OS/arch, downloads <b>llama.cpp</b> and the <b>Gemma 4 E2B</b> vision model (~6.2 GB, one time, resumable), and smoke-tests the model. It's idempotent.</p></details>
     <details><summary>Does it work with Google Slides?</summary>
       <p>Yes — open the deck in presentation mode (Ctrl/⌘+F5). For private decks, sign into Google once in the window deck-remote launches. Arrow-key-driven HTML decks work too.</p></details>
-    <details><summary>My phone is on a different network / guest Wi‑Fi. Now what?</summary>
-      <p>Run <code>node relay.js</code> on any host with a public address and start the presenter with <code>--relay ws://that-host:8676</code>. deck-remote connects outbound, prints a second QR code whose URL works from <b>any</b> network (cellular included), and keeps local + remote phones in sync. The relay only carries small control/state JSON — never slide images.</p></details>
+    <details><summary>The QR doesn't connect. What do I try?</summary>
+      <p>deck-remote auto-detects the active Wi‑Fi and prints a QR for it, plus numbered alternate addresses (every network interface, and on a Mac the stable <code>your-mac.local</code> name). There's also a <code>/connect</code> page listing tappable options with per-address QRs. If the machine switches Wi‑Fi mid-run, new options are printed automatically. Requires phone and computer on the same network.</p></details>
     <details><summary>And PDFs?</summary>
       <p>Yes — pass the file path: <code>./deck-remote --url ~/deck.pdf</code>. Navigation uses the PDF viewer's page anchors; any zoom level works.</p></details>
     <details><summary>Is it safe on conference Wi‑Fi?</summary>

@@ -176,22 +176,16 @@
     } else {
       const title = s.tabTitle ? s.tabTitle.slice(0, 48) : '';
       const phones = s.phones > 1 ? ' · ' + s.phones + ' phones' : '';
-      els.bar.textContent = (title + (s.relayUrl ? ' · anywhere' : '') + phones).replace(/^ · /, '');
+      els.bar.textContent = (title + phones).replace(/^ · /, '');
       els.next.disabled = els.back.disabled = false;
     }
   }
 
   function connect() {
-    // local mode: served by deck-remote itself (/ws).
-    // remote mode: served by a relay at /r/<CODE> — connect to the relay hub
-    // so the phone works on ANY network, not just the presenter's LAN.
-    const room = location.pathname.match(/^\/r\/([A-Za-z0-9]+)/);
-    const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
-    let url = room
-      ? proto + location.host + '/hub/phone?code=' + room[1]
-      : proto + location.host + '/ws';
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    let url = proto + '://' + location.host + '/ws';
     const pin = localStorage.getItem('deck-remote-pin');
-    if (pin) url += (url.includes('?') ? '&' : '?') + 'pin=' + encodeURIComponent(pin);
+    if (pin) url += '?pin=' + encodeURIComponent(pin);
     ws = new WebSocket(url);
 
     ws.onopen = () => { everOpened = true; retry = 0; els.dot.className = 'ok'; };
@@ -201,17 +195,14 @@
     ws.onclose = () => {
       els.dot.className = 'warn';
       els.next.disabled = els.back.disabled = true;
-      // if we never opened, maybe a pin is required (local mode only knows via /api/state)
-      if (!everOpened && !room) {
+      // if we never opened, maybe a pin is required
+      if (!everOpened && !localStorage.getItem('deck-remote-pin')) {
         fetch('/api/state').then((r) => r.json()).then((s) => {
-          if (s && s.pinRequired && !localStorage.getItem('deck-remote-pin')) {
+          if (s && s.pinRequired) {
             const p = prompt('This remote is protected. Enter the PIN:');
             if (p) { localStorage.setItem('deck-remote-pin', p); }
           }
         }).catch(() => {});
-      } else if (!everOpened && room && !localStorage.getItem('deck-remote-pin')) {
-        const p = prompt('This remote is protected. Enter the PIN:');
-        if (p) { localStorage.setItem('deck-remote-pin', p); }
       }
       retry++;
       setTimeout(connect, Math.min(500 * retry, 5000));
